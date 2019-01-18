@@ -1,0 +1,466 @@
+<template>
+    <div class="editor">
+        <div class="actionbar">
+            <button
+                v-for="action in actions"
+                @click="action.result"
+                :title="action.title"
+                :class="{selected: action.state === 'remove' }"
+                v-bind:key="action.title"
+            >
+                <span v-html="action.icon"></span>
+            </button>
+        </div>
+
+        <div
+            class="content"
+            contenteditable="true"
+            ref="content"
+            @keyup="handleChange"
+        >
+        </div>
+    </div>
+</template>
+
+<script>
+/* import HighlightableInput from 'vue-highlightable-input';*/
+import IntervalTree from 'node-interval-tree';
+import debounce from 'lodash.debounce';
+import isUndefined from 'lodash.isundefined';
+
+/* const formatBlock = 'formatBlock';*/
+const queryCommandState = command => document.queryCommandState(command);
+const exec = (command, value = null) => document.execCommand(command, false, value);
+
+var tagsToReplace = {
+    '&': '&amp;',
+    '<': '&lt;',
+    '>': '&gt;',
+};
+
+export default {
+    name: 'VPell',
+    props: {
+        value: { type: String, default: 'this is the default test text' },
+        highlight: { type: Array, default: () => ['test'] },
+        highlightStyle: {
+            type: String,
+            default: 'background-color:yellow',
+        },
+        highlightEnabled: {
+            type: Boolean,
+            default: true,
+        },
+        highlightDelay: {
+            type: Number,
+            default: 500, //This is milliseconds
+        },
+        caseSensitive: {
+            type: Boolean,
+            default: false,
+        },
+    },
+    data() {
+        return {
+            internalValue: '',
+            htmlOutput: '',
+            debouncedHandler: null,
+            actions: {
+                bold: {
+                    icon: '<b>B</b>',
+                    title: 'Bold',
+                    state: () => queryCommandState('bold'),
+                    result: () => {
+                        exec('bold');
+                        this.handleChange();
+                    },
+                },
+                italic: {
+                    icon: '<i>I</i>',
+                    title: 'Italic',
+                    state: () => queryCommandState('italic'),
+                    result: () => exec('italic'),
+                },
+                ulist: {
+                    icon: '&#8226;',
+                    title: 'Unordered List',
+                    result: () => exec('insertUnorderedList'),
+                },
+            },
+        };
+    },
+    mounted() {
+        this.internalValue = this.value;
+        this.processHighlights();
+    },
+    watch: {
+        highlightStyle() {
+            this.processHighlights();
+        },
+        highlight() {
+            this.processHighlights();
+        },
+        value() {
+            if (this.internalValue != this.value) {
+                this.internalValue = this.value;
+                this.processHighlights();
+            }
+        },
+        highlightEnabled() {
+            this.processHighlights();
+        },
+        caseSensitive() {
+            this.processHighlights();
+        },
+        htmlOutput() {
+            const content = this.$refs.content;
+            const selection = this.saveSelection(content);
+            content.innerHTML = this.htmlOutput;
+            this.restoreSelection(content, selection);
+        },
+        internalValue() {
+            const content = this.$refs.content;
+            const selection = this.saveSelection(content);
+            content.innerHTML = this.internalValue;
+            this.restoreSelection(content, selection);
+        },
+    },
+    computed: {
+        noHightlightHtml() {
+            return this.internalValue
+                .replace(/<span style='background-color:yellow'>/g, '')
+                .replace(/<\/span>/g, '');
+        },
+    },
+    methods: {
+        handleChange() {
+            const content = this.$refs.content;
+
+            this.debouncedHandler = debounce(function() {
+                /* if (this.internalValue !== content.textContent) {
+                 *     this.internalValue = content.textContent;
+                 *     this.processHighlights();
+                 * }*/
+                if (this.internalValue !== content.innerHTML) {
+                    this.internalValue = content.innerHTML;
+                    this.processHighlights();
+                }
+            }, this.highlightDelay);
+            this.debouncedHandler();
+        },
+        processHighlights() {
+            /* if (!this.highlightEnabled) {
+             *     this.htmlOutput = this.internalValue;
+             *     this.$emit('input', this.internalValue);
+             *     return;
+             * }*/
+            let intervalTree = new IntervalTree();
+
+            // Find the position ranges of the text to highlight
+            let highlightPositions = [];
+            let sortedHighlights = this.normalizedHighlights();
+            if (!sortedHighlights) return;
+
+            for (var i = 0; i < sortedHighlights.length; i++) {
+                let highlightObj = sortedHighlights[i];
+                let indices = [];
+
+                if (highlightObj.text) {
+                    if (typeof highlightObj.text == 'string') {
+                        indices = this.getIndicesOf(
+                            highlightObj.text,
+                            this.noHightlightHtml,
+                            isUndefined(highlightObj.caseSensitive)
+                                ? this.caseSensitive
+                                : highlightObj.caseSensitive
+                        );
+                        indices.forEach(start => {
+                            var end = start + highlightObj.text.length - 1;
+                            this.insertRange(start, end, highlightObj, intervalTree);
+                        });
+                    }
+                    if (Object.prototype.toString.call(highlightObj.text) === '[object RegExp]') {
+                        indices = this.getRegexIndices(highlightObj.text, this.noHightlightHtml);
+                        indices.forEach(pair => {
+                            this.insertRange(pair.start, pair.end, highlightObj, intervalTree);
+                        });
+                    }
+                }
+                if (
+                    highlightObj.start &&
+                    highlightObj.end &&
+                    highlightObj.start < highlightObj.end
+                ) {
+                    var start = highlightObj.start;
+                    var end = highlightObj.end - 1;
+                    this.insertRange(start, end, highlightObj, intervalTree);
+                }
+            }
+
+            highlightPositions = intervalTree.search(0, this.noHightlightHtml.length);
+            highlightPositions = highlightPositions.sort((a, b) => a.start - b.start);
+            console.log(highlightPositions);
+            /* console.log(this.noHightlightHtml);*/
+            // Construct the output with styled spans around the highlight text
+            let result = '';
+            let startingPosition = 0;
+
+            highlightPositions.forEach((position, k) => {
+                result += this.noHightlightHtml.substring(startingPosition, position.start);
+                result +=
+                    "<span style='" +
+                    (highlightPositions[k].style || this.highlightStyle) +
+                    "'>" +
+                    this.noHightlightHtml.substring(position.start, position.end + 1) +
+                    '</span>';
+                startingPosition = position.end + 1;
+            });
+
+            // In case we exited the loop early
+            if (startingPosition < this.noHightlightHtml.length) {
+                result += this.noHightlightHtml.substring(
+                    startingPosition,
+                    this.noHightlightHtml.length
+                );
+            }
+
+            // Stupid firefox bug
+            if (result[result.length - 1] == ' ') {
+                result = result.substring(0, result.length - 1);
+                result += '&nbsp;';
+            }
+
+            console.log(result);
+
+            this.internalValue = result;
+            this.$emit('input', this.internalValue);
+        },
+        insertRange(start, end, highlightObj, intervalTree) {
+            var overlap = intervalTree.search(start, end);
+            var maxLengthOverlap = overlap.reduce((max, o) => {
+                return Math.max(o.end - o.start, max);
+            }, 0);
+            if (overlap.length == 0) {
+                intervalTree.insert(start, end, {
+                    start: start,
+                    end: end,
+                    style: highlightObj.style,
+                });
+            } else if (end - start > maxLengthOverlap) {
+                overlap.forEach(o => {
+                    intervalTree.remove(o.start, o.end, o);
+                });
+                intervalTree.insert(start, end, {
+                    start: start,
+                    end: end,
+                    style: highlightObj.style,
+                });
+            }
+        },
+        normalizedHighlights() {
+            if (this.highlight == null) return null;
+            if (
+                Object.prototype.toString.call(this.highlight) === '[object RegExp]' ||
+                typeof this.highlight == 'string'
+            )
+                return [{ text: this.highlight }];
+
+            if (
+                Object.prototype.toString.call(this.highlight) === '[object Array]' &&
+                this.highlight.length > 0
+            ) {
+                return this.highlight
+                    .map(h => {
+                        if (
+                            h.text ||
+                            typeof h == 'string' ||
+                            Object.prototype.toString.call(h) === '[object RegExp]'
+                        ) {
+                            return {
+                                text: h.text || h,
+                                style: h.style || this.highlightStyle,
+                                caseSensitive: h.caseSensitive,
+                            };
+                        } else if (h.start && h.end) {
+                            return {
+                                style: h.style || this.highlightStyle,
+                                start: h.start,
+                                end: h.end,
+                                caseSensitive: h.caseSensitive,
+                            };
+                        } else {
+                            console.error('Please provide a valid highlight object or string');
+                        }
+                    })
+                    .sort(
+                        (a, b) =>
+                            a.text && b.text
+                                ? a.text > b.text
+                                : a.start == b.start
+                                    ? a.end < b.end
+                                    : a.start < b.start
+                    );
+                // We sort here in ascending order because we want to find highlights for the smaller strings first
+                // and then override them later with any overlapping larger strings. So for example:
+                // if we have highlights: g and gg and the string "sup gg" should have only "gg" highlighted.
+            }
+            console.error('Expected a string or an array of strings');
+            return null;
+        },
+        // Copied from: https://stackoverflow.com/questions/5499078/fastest-method-to-escape-html-tags-as-html-entities
+        safe_tags_replace(str) {
+            return str.replace(/[&<>]/g, this.replaceTag);
+        },
+        replaceTag(tag) {
+            return tagsToReplace[tag] || tag;
+        },
+        getRegexIndices(regex, str) {
+            if (!regex.global) {
+                console.error('Expected ' + regex + ' to be global');
+                return [];
+            }
+
+            regex = RegExp(regex);
+            var indices = [];
+            var match = null;
+            while ((match = regex.exec(str)) != null) {
+                indices.push({ start: match.index, end: match.index + match[0].length - 1 });
+            }
+            return indices;
+        },
+        // Copied verbatim because I'm lazy:
+        // https://stackoverflow.com/questions/3410464/how-to-find-indices-of-all-occurrences-of-one-string-in-another-in-javascript
+        getIndicesOf(searchStr, str, caseSensitive) {
+            var searchStrLen = searchStr.length;
+            if (searchStrLen == 0) {
+                return [];
+            }
+            var startIndex = 0,
+                index,
+                indices = [];
+            if (!caseSensitive) {
+                str = str.toLowerCase();
+                searchStr = searchStr.toLowerCase();
+            }
+            while ((index = str.indexOf(searchStr, startIndex)) > -1) {
+                indices.push(index);
+                startIndex = index + searchStrLen;
+            }
+            return indices;
+        },
+
+        // Copied but modifed slightly from: https://stackoverflow.com/questions/14636218/jquery-convert-text-url-to-link-as-typing/14637351#14637351
+        saveSelection(containerEl) {
+            var start;
+            if (window.getSelection && document.createRange) {
+                var selection = window.getSelection();
+                if (!selection || selection.rangeCount == 0) return;
+                var range = selection.getRangeAt(0);
+                var preSelectionRange = range.cloneRange();
+                preSelectionRange.selectNodeContents(containerEl);
+                preSelectionRange.setEnd(range.startContainer, range.startOffset);
+                start = preSelectionRange.toString().length;
+                return {
+                    start: start,
+                    end: start + range.toString().length,
+                };
+            } else if (document.selection) {
+                var selectedTextRange = document.selection.createRange();
+                var preSelectionTextRange = document.body.createTextRange();
+                preSelectionTextRange.moveToElementText(containerEl);
+                preSelectionTextRange.setEndPoint('EndToStart', selectedTextRange);
+                start = preSelectionTextRange.text.length;
+                return {
+                    start: start,
+                    end: start + selectedTextRange.text.length,
+                };
+            }
+        },
+        // Copied but modifed slightly from: https://stackoverflow.com/questions/14636218/jquery-convert-text-url-to-link-as-typing/14637351#14637351
+        restoreSelection(containerEl, savedSel) {
+            if (!savedSel) return;
+            if (window.getSelection && document.createRange) {
+                var charIndex = 0,
+                    range = document.createRange();
+                range.setStart(containerEl, 0);
+                range.collapse(true);
+                var nodeStack = [containerEl],
+                    node,
+                    foundStart = false,
+                    stop = false;
+                while (!stop && (node = nodeStack.pop())) {
+                    if (node.nodeType == 3) {
+                        var nextCharIndex = charIndex + node.length;
+                        if (
+                            !foundStart &&
+                            savedSel.start >= charIndex &&
+                            savedSel.start <= nextCharIndex
+                        ) {
+                            range.setStart(node, savedSel.start - charIndex);
+                            foundStart = true;
+                        }
+                        if (
+                            foundStart &&
+                            savedSel.end >= charIndex &&
+                            savedSel.end <= nextCharIndex
+                        ) {
+                            range.setEnd(node, savedSel.end - charIndex);
+                            stop = true;
+                        }
+                        charIndex = nextCharIndex;
+                    } else {
+                        var i = node.childNodes.length;
+                        while (i--) {
+                            nodeStack.push(node.childNodes[i]);
+                        }
+                    }
+                }
+                var sel = window.getSelection();
+                sel.removeAllRanges();
+                sel.addRange(range);
+            } else if (document.selection) {
+                var textRange = document.body.createTextRange();
+                textRange.moveToElementText(containerEl);
+                textRange.collapse(true);
+                textRange.moveEnd('character', savedSel.end);
+                textRange.moveStart('character', savedSel.start);
+                textRange.select();
+            }
+        },
+    },
+};
+</script>
+
+
+<style lang="scss" scoped>
+.editor {
+    border: 1px solid hsla(0, 0%, 4%, 0.1);
+
+    .actionbar {
+        border-bottom: 1px solid hsla(0, 0%, 4%, 0.1);
+
+        button {
+            background-color: transparent;
+            border: none;
+            cursor: pointer;
+            height: 30px;
+            outline: 0;
+            width: 30px;
+            vertical-align: bottom;
+
+            &.selected,
+            &:hover {
+                background-color: #f0f0f0;
+            }
+        }
+    }
+
+    .content {
+        font-size: 16px;
+        height: 300px;
+        outline: 0;
+        overflow-y: auto;
+        padding: 10px;
+    }
+}
+</style>
