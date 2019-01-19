@@ -23,12 +23,10 @@
 </template>
 
 <script>
-/* import HighlightableInput from 'vue-highlightable-input';*/
 import IntervalTree from 'node-interval-tree';
 import debounce from 'lodash.debounce';
-import isUndefined from 'lodash.isundefined';
+import words from 'lodash.words';
 
-/* const formatBlock = 'formatBlock';*/
 const queryCommandState = command => document.queryCommandState(command);
 const exec = (command, value = null) => document.execCommand(command, false, value);
 
@@ -63,7 +61,6 @@ export default {
     data() {
         return {
             internalValue: '',
-            htmlOutput: '',
             debouncedHandler: null,
             actions: {
                 bold: {
@@ -79,12 +76,18 @@ export default {
                     icon: '<i>I</i>',
                     title: 'Italic',
                     state: () => queryCommandState('italic'),
-                    result: () => exec('italic'),
+                    result: () => {
+                        exec('italic');
+                        this.handleChange();
+                    },
                 },
                 ulist: {
                     icon: '&#8226;',
                     title: 'Unordered List',
-                    result: () => exec('insertUnorderedList'),
+                    result: () => {
+                        exec('insertUnorderedList');
+                        this.handleChange();
+                    },
                 },
             },
         };
@@ -112,12 +115,6 @@ export default {
         caseSensitive() {
             this.processHighlights();
         },
-        htmlOutput() {
-            const content = this.$refs.content;
-            const selection = this.saveSelection(content);
-            content.innerHTML = this.htmlOutput;
-            this.restoreSelection(content, selection);
-        },
         internalValue() {
             const content = this.$refs.content;
             const selection = this.saveSelection(content);
@@ -128,7 +125,7 @@ export default {
     computed: {
         noHightlightHtml() {
             return this.internalValue
-                .replace(/<span style='background-color:yellow'>/g, '')
+                .replace(/<span style="background-color:yellow">/g, '')
                 .replace(/<\/span>/g, '');
         },
     },
@@ -137,10 +134,6 @@ export default {
             const content = this.$refs.content;
 
             this.debouncedHandler = debounce(function() {
-                /* if (this.internalValue !== content.textContent) {
-                 *     this.internalValue = content.textContent;
-                 *     this.processHighlights();
-                 * }*/
                 if (this.internalValue !== content.innerHTML) {
                     this.internalValue = content.innerHTML;
                     this.processHighlights();
@@ -149,204 +142,20 @@ export default {
             this.debouncedHandler();
         },
         processHighlights() {
-            /* if (!this.highlightEnabled) {
-             *     this.htmlOutput = this.internalValue;
-             *     this.$emit('input', this.internalValue);
-             *     return;
-             * }*/
-            let intervalTree = new IntervalTree();
-
-            // Find the position ranges of the text to highlight
-            let highlightPositions = [];
-            let sortedHighlights = this.normalizedHighlights();
-            if (!sortedHighlights) return;
-
-            for (var i = 0; i < sortedHighlights.length; i++) {
-                let highlightObj = sortedHighlights[i];
-                let indices = [];
-
-                if (highlightObj.text) {
-                    if (typeof highlightObj.text == 'string') {
-                        indices = this.getIndicesOf(
-                            highlightObj.text,
-                            this.noHightlightHtml,
-                            isUndefined(highlightObj.caseSensitive)
-                                ? this.caseSensitive
-                                : highlightObj.caseSensitive
-                        );
-                        indices.forEach(start => {
-                            var end = start + highlightObj.text.length - 1;
-                            this.insertRange(start, end, highlightObj, intervalTree);
-                        });
-                    }
-                    if (Object.prototype.toString.call(highlightObj.text) === '[object RegExp]') {
-                        indices = this.getRegexIndices(highlightObj.text, this.noHightlightHtml);
-                        indices.forEach(pair => {
-                            this.insertRange(pair.start, pair.end, highlightObj, intervalTree);
-                        });
-                    }
-                }
-                if (
-                    highlightObj.start &&
-                    highlightObj.end &&
-                    highlightObj.start < highlightObj.end
-                ) {
-                    var start = highlightObj.start;
-                    var end = highlightObj.end - 1;
-                    this.insertRange(start, end, highlightObj, intervalTree);
-                }
-            }
-
-            highlightPositions = intervalTree.search(0, this.noHightlightHtml.length);
-            highlightPositions = highlightPositions.sort((a, b) => a.start - b.start);
-            console.log(highlightPositions);
-            /* console.log(this.noHightlightHtml);*/
-            // Construct the output with styled spans around the highlight text
-            let result = '';
-            let startingPosition = 0;
-
-            highlightPositions.forEach((position, k) => {
-                result += this.noHightlightHtml.substring(startingPosition, position.start);
-                result +=
-                    "<span style='" +
-                    (highlightPositions[k].style || this.highlightStyle) +
-                    "'>" +
-                    this.noHightlightHtml.substring(position.start, position.end + 1) +
-                    '</span>';
-                startingPosition = position.end + 1;
-            });
-
-            // In case we exited the loop early
-            if (startingPosition < this.noHightlightHtml.length) {
-                result += this.noHightlightHtml.substring(
-                    startingPosition,
-                    this.noHightlightHtml.length
-                );
-            }
-
-            // Stupid firefox bug
-            if (result[result.length - 1] == ' ') {
-                result = result.substring(0, result.length - 1);
-                result += '&nbsp;';
-            }
-
-            console.log(result);
-
-            this.internalValue = result;
-            this.$emit('input', this.internalValue);
-        },
-        insertRange(start, end, highlightObj, intervalTree) {
-            var overlap = intervalTree.search(start, end);
-            var maxLengthOverlap = overlap.reduce((max, o) => {
-                return Math.max(o.end - o.start, max);
-            }, 0);
-            if (overlap.length == 0) {
-                intervalTree.insert(start, end, {
-                    start: start,
-                    end: end,
-                    style: highlightObj.style,
-                });
-            } else if (end - start > maxLengthOverlap) {
-                overlap.forEach(o => {
-                    intervalTree.remove(o.start, o.end, o);
-                });
-                intervalTree.insert(start, end, {
-                    start: start,
-                    end: end,
-                    style: highlightObj.style,
-                });
-            }
-        },
-        normalizedHighlights() {
-            if (this.highlight == null) return null;
-            if (
-                Object.prototype.toString.call(this.highlight) === '[object RegExp]' ||
-                typeof this.highlight == 'string'
-            )
-                return [{ text: this.highlight }];
-
-            if (
-                Object.prototype.toString.call(this.highlight) === '[object Array]' &&
-                this.highlight.length > 0
-            ) {
-                return this.highlight
-                    .map(h => {
-                        if (
-                            h.text ||
-                            typeof h == 'string' ||
-                            Object.prototype.toString.call(h) === '[object RegExp]'
-                        ) {
-                            return {
-                                text: h.text || h,
-                                style: h.style || this.highlightStyle,
-                                caseSensitive: h.caseSensitive,
-                            };
-                        } else if (h.start && h.end) {
-                            return {
-                                style: h.style || this.highlightStyle,
-                                start: h.start,
-                                end: h.end,
-                                caseSensitive: h.caseSensitive,
-                            };
-                        } else {
-                            console.error('Please provide a valid highlight object or string');
+            if (this.highlightEnabled) {
+                const result = words(this.noHightlightHtml, /(<[a-z\/]{1,4}>)|[^ \n<]+/g).map(
+                    word => {
+                        if (this.highlight.includes(word)) {
+                            return `<span style="${this.highlightStyle}">${word}</span>`;
                         }
-                    })
-                    .sort(
-                        (a, b) =>
-                            a.text && b.text
-                                ? a.text > b.text
-                                : a.start == b.start
-                                    ? a.end < b.end
-                                    : a.start < b.start
-                    );
-                // We sort here in ascending order because we want to find highlights for the smaller strings first
-                // and then override them later with any overlapping larger strings. So for example:
-                // if we have highlights: g and gg and the string "sup gg" should have only "gg" highlighted.
-            }
-            console.error('Expected a string or an array of strings');
-            return null;
-        },
-        // Copied from: https://stackoverflow.com/questions/5499078/fastest-method-to-escape-html-tags-as-html-entities
-        safe_tags_replace(str) {
-            return str.replace(/[&<>]/g, this.replaceTag);
-        },
-        replaceTag(tag) {
-            return tagsToReplace[tag] || tag;
-        },
-        getRegexIndices(regex, str) {
-            if (!regex.global) {
-                console.error('Expected ' + regex + ' to be global');
-                return [];
+
+                        return word;
+                    }
+                );
+                this.internalValue = result.join(' ');
             }
 
-            regex = RegExp(regex);
-            var indices = [];
-            var match = null;
-            while ((match = regex.exec(str)) != null) {
-                indices.push({ start: match.index, end: match.index + match[0].length - 1 });
-            }
-            return indices;
-        },
-        // Copied verbatim because I'm lazy:
-        // https://stackoverflow.com/questions/3410464/how-to-find-indices-of-all-occurrences-of-one-string-in-another-in-javascript
-        getIndicesOf(searchStr, str, caseSensitive) {
-            var searchStrLen = searchStr.length;
-            if (searchStrLen == 0) {
-                return [];
-            }
-            var startIndex = 0,
-                index,
-                indices = [];
-            if (!caseSensitive) {
-                str = str.toLowerCase();
-                searchStr = searchStr.toLowerCase();
-            }
-            while ((index = str.indexOf(searchStr, startIndex)) > -1) {
-                indices.push(index);
-                startIndex = index + searchStrLen;
-            }
-            return indices;
+            this.$emit('input', this.internalValue);
         },
 
         // Copied but modifed slightly from: https://stackoverflow.com/questions/14636218/jquery-convert-text-url-to-link-as-typing/14637351#14637351
@@ -430,7 +239,6 @@ export default {
     },
 };
 </script>
-
 
 <style lang="scss" scoped>
 .editor {

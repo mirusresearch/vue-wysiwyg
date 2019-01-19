@@ -11,12 +11,11 @@
   "devDependencies": {
     "node-sass": "^4.11.0",
     "sass-loader": "^7.1.0",
-    "vue": "^2.5.22"
+    "vue": "^2.5.22",
+    "webpack": "^4.28.4"
   },
   "dependencies": {
     "lodash.debounce": "^4.0.8",
-    "lodash.isundefined": "^3.0.1",
-    "node-interval-tree": "^1.3.3",
-    "vue-highlightable-input": "^1.0.6"
+    "lodash.words": "^4.2.0"
   }
 }
