@@ -140,7 +140,7 @@ export default {
         },
         processHighlights() {
             if (this.highlightEnabled) {
-                const result = words(this.noHightlightHtml, /(<[a-z\/]{1,4}>)|[^ \n<]+/g).map(
+                const result = words(this.noHightlightHtml, /(<[a-z\/]{1,4}>)|[^ <]+/g).map(
                     word => {
                         if (this.highlight.includes(word)) {
                             return `<span style="${this.highlightStyle}">${word}</span>`;

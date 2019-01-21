@@ -9,12 +9,12 @@
     "author": "alec@mirusresearch.com",
     "license": "ISC",
     "devDependencies": {
+        "@vue/cli": "^3.3.0",
+        "@vue/cli-service-global": "^3.3.0",
         "node-sass": "^4.11.0",
         "sass-loader": "^7.1.0",
         "vue": "^2.5.22",
-        "webpack": "^4.28.4",
-        "@vue/cli": "^3.3.0",
-        "@vue/cli-service-global": "^3.3.0"
+        "webpack": "^4.28.4"
     },
     "dependencies": {
         "lodash.debounce": "^4.0.8",
