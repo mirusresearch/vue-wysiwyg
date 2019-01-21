@@ -16,6 +16,8 @@
             class="content"
             contenteditable="true"
             ref="content"
+            @input="handleInput"
+            @keydown="handleKeydown"
             @keyup="handleChange"
             @mouseup="handleMouse"
         >
@@ -77,6 +79,12 @@ export default {
         this.internalValue = this.value;
         this.processHighlights();
         this.updateActionStates();
+        /*
+         *         this.interval = setInterval(() => {
+         *             this.internalValue = document
+         *                 .querySelector('.content')
+         *                 .innerHTML.replace(/<div><br><\/div>/g, '<div></div>');
+         *         }, 10);*/
     },
     watch: {
         highlightStyle() {
@@ -122,6 +130,22 @@ export default {
                 this.$set(action, 'selected', document.queryCommandState(action.value));
             });
         },
+        handleInput({ target: { firstChild } }) {
+            const content = this.$refs.content;
+            if (firstChild && firstChild.nodeType === 3) {
+                this.exec('formatBlock', `<div>`);
+            } else if (content.innerHTML === '<br>') {
+                this.internalValue = '';
+            }
+        },
+        handleKeydown(event) {
+            if (
+                event.key === 'Enter' &&
+                document.queryCommandState('formatBlock') === 'blockquote'
+            ) {
+                setTimeout(() => this.exec('formatBlock', `<div>`), 0);
+            }
+        },
         handleChange() {
             this.updateActionStates();
             const content = this.$refs.content;
@@ -137,6 +161,12 @@ export default {
         handleMouse() {
             const content = this.$refs.content;
             this.updateActionStates();
+
+            /* let selection = window.getSelection();
+             * let range = selection.getRangeAt(0);
+             * range.setStart(content, 0);
+             * const index = range.toString().length;
+             * console.log(index);*/
         },
         processHighlights() {
             if (this.highlightEnabled) {
@@ -154,15 +184,18 @@ export default {
 
             this.$emit('input', this.internalValue);
         },
-
+        getNodeIndex(n) {
+            var i = 0;
+            while ((n = n.previousSibling)) i++;
+            return i;
+        },
         getTextNodeAtPosition(index, content) {
             const root = content;
-            let lastNode = null;
-
             const next = function(elem) {
+                console.log(elem, elem.textContent.length);
+                console.log(index);
                 if (index > elem.textContent.length) {
                     index -= elem.textContent.length;
-                    lastNode = elem;
                     return NodeFilter.FILTER_REJECT;
                 }
                 return NodeFilter.FILTER_ACCEPT;
@@ -170,21 +203,21 @@ export default {
 
             const treeWalker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, next);
             const c = treeWalker.nextNode();
-
-            return {
-                node: c ? c : root,
-                position: c ? index : 0,
-            };
+            return { node: c ? c : root, position: c ? index : 0 };
         },
         saveCaretPosition(content) {
             let selection = window.getSelection();
+            console.log(selection);
+            let anchor = content; //selection.anchorNode;
             let range = selection.getRangeAt(0);
-
-            range.setStart(content, 0);
+            range.setStart(anchor, 0);
             const index = range.toString().length;
 
+            console.log(index);
+
             return () => {
-                const pos = this.getTextNodeAtPosition(index, content);
+                const pos = this.getTextNodeAtPosition(index, anchor);
+                console.log(pos);
                 selection.removeAllRanges();
                 let newRange = new Range();
                 newRange.setStart(pos.node, pos.position);
