@@ -99,9 +99,9 @@ export default {
         },
         internalValue() {
             const content = this.$refs.content;
-            const selection = this.saveSelection(content);
+            const restore = this.saveCaretPosition(content);
             content.innerHTML = this.internalValue;
-            this.restoreSelection(content, selection);
+            restore();
         },
     },
     computed: {
@@ -115,6 +115,7 @@ export default {
         exec(command, value = null) {
             document.execCommand(command, false, value);
             this.handleChange();
+            this.updateActionStates();
         },
         updateActionStates() {
             foreach(this.actions, (action, key) => {
@@ -134,6 +135,7 @@ export default {
             this.debouncedHandler();
         },
         handleMouse() {
+            const content = this.$refs.content;
             this.updateActionStates();
         },
         processHighlights() {
@@ -153,103 +155,41 @@ export default {
             this.$emit('input', this.internalValue);
         },
 
-        // Copied but modifed slightly from: https://stackoverflow.com/questions/14636218/jquery-convert-text-url-to-link-as-typing/14637351#14637351
-        saveSelection(containerEl) {
-            let start;
+        getTextNodeAtPosition(index, content) {
+            const root = content;
+            let lastNode = null;
 
-            if (window.getSelection && document.createRange) {
-                let selection = window.getSelection();
-
-                if (!selection || selection.rangeCount == 0) {
-                    return null;
+            const next = function(elem) {
+                if (index > elem.textContent.length) {
+                    index -= elem.textContent.length;
+                    lastNode = elem;
+                    return NodeFilter.FILTER_REJECT;
                 }
+                return NodeFilter.FILTER_ACCEPT;
+            };
 
-                let range = selection.getRangeAt(0);
-                let preSelectionRange = range.cloneRange();
+            const treeWalker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, next);
+            const c = treeWalker.nextNode();
 
-                preSelectionRange.selectNodeContents(containerEl);
-                preSelectionRange.setEnd(range.startContainer, range.startOffset);
-                start = preSelectionRange.toString().length;
-
-                return {
-                    start: start,
-                    end: start + range.toString().length,
-                };
-            } else if (document.selection) {
-                let selectedTextRange = document.selection.createRange();
-                let preSelectionTextRange = document.body.createTextRange();
-
-                preSelectionTextRange.moveToElementText(containerEl);
-                preSelectionTextRange.setEndPoint('EndToStart', selectedTextRange);
-                start = preSelectionTextRange.text.length;
-
-                return {
-                    start: start,
-                    end: start + selectedTextRange.text.length,
-                };
-            }
-            return null;
+            return {
+                node: c ? c : root,
+                position: c ? index : 0,
+            };
         },
-        // Copied but modifed slightly from: https://stackoverflow.com/questions/14636218/jquery-convert-text-url-to-link-as-typing/14637351#14637351
-        restoreSelection(containerEl, savedSel) {
-            if (!savedSel) {
-                return null;
-            }
+        saveCaretPosition(content) {
+            let selection = window.getSelection();
+            let range = selection.getRangeAt(0);
 
-            if (window.getSelection && document.createRange) {
-                let charIndex = 0;
-                let range = document.createRange();
+            range.setStart(content, 0);
+            const index = range.toString().length;
 
-                range.setStart(containerEl, 0);
-                range.collapse(true);
-
-                let nodeStack = [containerEl],
-                    node,
-                    foundStart = false,
-                    stop = false;
-
-                while (!stop && (node = nodeStack.pop())) {
-                    if (node.nodeType == 3) {
-                        let nextCharIndex = charIndex + node.length;
-
-                        if (
-                            !foundStart &&
-                            savedSel.start >= charIndex &&
-                            savedSel.start <= nextCharIndex
-                        ) {
-                            range.setStart(node, savedSel.start - charIndex);
-                            foundStart = true;
-                        }
-                        if (
-                            foundStart &&
-                            savedSel.end >= charIndex &&
-                            savedSel.end <= nextCharIndex
-                        ) {
-                            range.setEnd(node, savedSel.end - charIndex);
-                            stop = true;
-                        }
-                        charIndex = nextCharIndex;
-                    } else {
-                        let i = node.childNodes.length;
-
-                        while (i--) {
-                            nodeStack.push(node.childNodes[i]);
-                        }
-                    }
-                }
-                let sel = window.getSelection();
-
-                sel.removeAllRanges();
-                sel.addRange(range);
-            } else if (document.selection) {
-                let textRange = document.body.createTextRange();
-                textRange.moveToElementText(containerEl);
-                textRange.collapse(true);
-                textRange.moveEnd('character', savedSel.end);
-                textRange.moveStart('character', savedSel.start);
-                textRange.select();
-            }
-            return null;
+            return () => {
+                const pos = this.getTextNodeAtPosition(index, content);
+                selection.removeAllRanges();
+                let newRange = new Range();
+                newRange.setStart(pos.node, pos.position);
+                selection.addRange(newRange);
+            };
         },
     },
 };
