@@ -17,7 +17,6 @@
             contenteditable="true"
             ref="content"
             @input="handleInput"
-            @keydown="handleKeydown"
             @keyup="handleChange"
             @mouseup="handleMouse"
         >
@@ -29,11 +28,13 @@
 import debounce from 'lodash.debounce';
 import words from 'lodash.words';
 import foreach from 'lodash.foreach';
+import rangy from 'rangy-updated/lib/rangy-core';
+import 'rangy-updated/lib/rangy-selectionsaverestore';
 
 export default {
     name: 'VPell',
     props: {
-        value: { type: String, default: 'this is the default test text' },
+        value: { type: String, default: '<div>this is the default test text </div>' },
         highlight: { type: Array, default: () => ['test'] },
         highlightStyle: {
             type: String,
@@ -76,22 +77,22 @@ export default {
         };
     },
     mounted() {
-        this.internalValue = this.value;
-        this.processHighlights();
+        rangy.init();
+
+        if (!/<div>.*?<\/div>/g.test(this.value)) {
+            this.internalValue = `<div>${this.value}</div>`;
+        } else {
+            this.internalValue = this.value;
+        }
+        this.$refs.content.innerHTML = this.addHighlights(this.internalValue);
         this.updateActionStates();
-        /*
-         *         this.interval = setInterval(() => {
-         *             this.internalValue = document
-         *                 .querySelector('.content')
-         *                 .innerHTML.replace(/<div><br><\/div>/g, '<div></div>');
-         *         }, 10);*/
     },
     watch: {
         highlightStyle() {
-            this.processHighlights();
+            this.addHighlights(this.$refs.content.innerHTML);
         },
         highlight() {
-            this.processHighlights();
+            this.addHighlights(this.$refs.content.innerHTML);
         },
         value() {
             if (this.internalValue != this.value) {
@@ -100,23 +101,17 @@ export default {
             }
         },
         highlightEnabled() {
-            this.processHighlights();
+            this.addHighlights(this.$refs.content.innerHTML);
         },
         caseSensitive() {
-            this.processHighlights();
-        },
-        internalValue() {
-            const content = this.$refs.content;
-            const restore = this.saveCaretPosition(content);
-            content.innerHTML = this.internalValue;
-            restore();
+            this.addHighlights(this.$refs.content.innerHTML);
         },
     },
     computed: {
         noHightlightHtml() {
             return this.internalValue
-                .replace(/<span style="background-color:yellow">/g, '')
-                .replace(/<\/span>/g, '');
+                .replace(/<a style="background-color:yellow">/g, '')
+                .replace(/<\/a>/g, '');
         },
     },
     methods: {
@@ -132,97 +127,49 @@ export default {
         },
         handleInput({ target: { firstChild } }) {
             const content = this.$refs.content;
-            if (firstChild && firstChild.nodeType === 3) {
-                this.exec('formatBlock', `<div>`);
-            } else if (content.innerHTML === '<br>') {
+            if (content.innerHTML === '<br>') {
                 this.internalValue = '';
             }
         },
-        handleKeydown(event) {
-            if (
-                event.key === 'Enter' &&
-                document.queryCommandState('formatBlock') === 'blockquote'
-            ) {
-                setTimeout(() => this.exec('formatBlock', `<div>`), 0);
-            }
-        },
         handleChange() {
+            if (this.debouncedHandler) {
+                this.debouncedHandler.cancel();
+            }
             this.updateActionStates();
             const content = this.$refs.content;
 
             this.debouncedHandler = debounce(function() {
                 if (this.internalValue !== content.innerHTML) {
+                    const savedSel = rangy.saveSelection();
+                    content.innerHTML = this.addHighlights(content.innerHTML);
+                    rangy.restoreSelection(savedSel);
                     this.internalValue = content.innerHTML;
-                    this.processHighlights();
+                    this.$emit('input', this.internalValue);
                 }
             }, this.highlightDelay);
             this.debouncedHandler();
         },
         handleMouse() {
-            const content = this.$refs.content;
             this.updateActionStates();
-
-            /* let selection = window.getSelection();
-             * let range = selection.getRangeAt(0);
-             * range.setStart(content, 0);
-             * const index = range.toString().length;
-             * console.log(index);*/
         },
-        processHighlights() {
-            if (this.highlightEnabled) {
-                const result = words(this.noHightlightHtml, /(<[a-z\/]{1,4}>)|[^ <]+/g).map(
-                    word => {
-                        if (this.highlight.includes(word)) {
-                            return `<span style="${this.highlightStyle}">${word}</span>`;
-                        }
+        addHighlights(html) {
+            let cleaned = html
+                .replace(/<a style="background-color:yellow">/g, '')
+                .replace(/<\/a>/g, '');
 
-                        return word;
-                    }
-                );
-                this.internalValue = result.join(' ');
+            if (this.highlightEnabled) {
+                foreach(this.highlight, singleHighlight => {
+                    cleaned = cleaned.replace(
+                        RegExp(singleHighlight, 'g'),
+                        `<a style="${this.highlightStyle}">${singleHighlight}</a>`,
+                        'g'
+                    );
+                });
+
+                return cleaned;
             }
 
-            this.$emit('input', this.internalValue);
-        },
-        getNodeIndex(n) {
-            var i = 0;
-            while ((n = n.previousSibling)) i++;
-            return i;
-        },
-        getTextNodeAtPosition(index, content) {
-            const root = content;
-            const next = function(elem) {
-                console.log(elem, elem.textContent.length);
-                console.log(index);
-                if (index > elem.textContent.length) {
-                    index -= elem.textContent.length;
-                    return NodeFilter.FILTER_REJECT;
-                }
-                return NodeFilter.FILTER_ACCEPT;
-            };
-
-            const treeWalker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, next);
-            const c = treeWalker.nextNode();
-            return { node: c ? c : root, position: c ? index : 0 };
-        },
-        saveCaretPosition(content) {
-            let selection = window.getSelection();
-            console.log(selection);
-            let anchor = content; //selection.anchorNode;
-            let range = selection.getRangeAt(0);
-            range.setStart(anchor, 0);
-            const index = range.toString().length;
-
-            console.log(index);
-
-            return () => {
-                const pos = this.getTextNodeAtPosition(index, anchor);
-                console.log(pos);
-                selection.removeAllRanges();
-                let newRange = new Range();
-                newRange.setStart(pos.node, pos.position);
-                selection.addRange(newRange);
-            };
+            return html;
         },
     },
 };
