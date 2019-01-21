@@ -3,9 +3,9 @@
         <div class="actionbar">
             <button
                 v-for="action in actions"
-                @click="action.result"
+                @click="exec(action.value)"
                 :title="action.title"
-                :class="{selected: action.state === 'remove' }"
+                :class="{ selected: action.selected }"
                 v-bind:key="action.title"
             >
                 <span v-html="action.icon"></span>
@@ -17,24 +17,18 @@
             contenteditable="true"
             ref="content"
             @keyup="handleChange"
+            @mouseup="handleMouse"
         >
         </div>
     </div>
 </template>
 
 <script>
-import IntervalTree from 'node-interval-tree';
 import debounce from 'lodash.debounce';
 import words from 'lodash.words';
+import foreach from 'lodash.foreach';
 
-const queryCommandState = command => document.queryCommandState(command);
 const exec = (command, value = null) => document.execCommand(command, false, value);
-
-var tagsToReplace = {
-    '&': '&amp;',
-    '<': '&lt;',
-    '>': '&gt;',
-};
 
 export default {
     name: 'VPell',
@@ -66,28 +60,17 @@ export default {
                 bold: {
                     icon: '<b>B</b>',
                     title: 'Bold',
-                    state: () => queryCommandState('bold'),
-                    result: () => {
-                        exec('bold');
-                        this.handleChange();
-                    },
+                    value: 'bold',
                 },
                 italic: {
                     icon: '<i>I</i>',
                     title: 'Italic',
-                    state: () => queryCommandState('italic'),
-                    result: () => {
-                        exec('italic');
-                        this.handleChange();
-                    },
+                    value: 'italic',
                 },
                 ulist: {
                     icon: '&#8226;',
                     title: 'Unordered List',
-                    result: () => {
-                        exec('insertUnorderedList');
-                        this.handleChange();
-                    },
+                    value: 'insertUnorderedList',
                 },
             },
         };
@@ -95,6 +78,7 @@ export default {
     mounted() {
         this.internalValue = this.value;
         this.processHighlights();
+        this.updateActionStates();
     },
     watch: {
         highlightStyle() {
@@ -130,7 +114,17 @@ export default {
         },
     },
     methods: {
+        exec(command, value = null) {
+            document.execCommand(command, false, value);
+            this.handleChange();
+        },
+        updateActionStates() {
+            foreach(this.actions, (action, key) => {
+                this.$set(action, 'selected', document.queryCommandState(action.value));
+            });
+        },
         handleChange() {
+            this.updateActionStates();
             const content = this.$refs.content;
 
             this.debouncedHandler = debounce(function() {
@@ -140,6 +134,9 @@ export default {
                 }
             }, this.highlightDelay);
             this.debouncedHandler();
+        },
+        handleMouse() {
+            this.updateActionStates();
         },
         processHighlights() {
             if (this.highlightEnabled) {
@@ -160,46 +157,63 @@ export default {
 
         // Copied but modifed slightly from: https://stackoverflow.com/questions/14636218/jquery-convert-text-url-to-link-as-typing/14637351#14637351
         saveSelection(containerEl) {
-            var start;
+            let start;
+
             if (window.getSelection && document.createRange) {
-                var selection = window.getSelection();
-                if (!selection || selection.rangeCount == 0) return;
-                var range = selection.getRangeAt(0);
-                var preSelectionRange = range.cloneRange();
+                let selection = window.getSelection();
+
+                if (!selection || selection.rangeCount == 0) {
+                    return null;
+                }
+
+                let range = selection.getRangeAt(0);
+                let preSelectionRange = range.cloneRange();
+
                 preSelectionRange.selectNodeContents(containerEl);
                 preSelectionRange.setEnd(range.startContainer, range.startOffset);
                 start = preSelectionRange.toString().length;
+
                 return {
                     start: start,
                     end: start + range.toString().length,
                 };
             } else if (document.selection) {
-                var selectedTextRange = document.selection.createRange();
-                var preSelectionTextRange = document.body.createTextRange();
+                let selectedTextRange = document.selection.createRange();
+                let preSelectionTextRange = document.body.createTextRange();
+
                 preSelectionTextRange.moveToElementText(containerEl);
                 preSelectionTextRange.setEndPoint('EndToStart', selectedTextRange);
                 start = preSelectionTextRange.text.length;
+
                 return {
                     start: start,
                     end: start + selectedTextRange.text.length,
                 };
             }
+            return null;
         },
         // Copied but modifed slightly from: https://stackoverflow.com/questions/14636218/jquery-convert-text-url-to-link-as-typing/14637351#14637351
         restoreSelection(containerEl, savedSel) {
-            if (!savedSel) return;
+            if (!savedSel) {
+                return null;
+            }
+
             if (window.getSelection && document.createRange) {
-                var charIndex = 0,
-                    range = document.createRange();
+                let charIndex = 0;
+                let range = document.createRange();
+
                 range.setStart(containerEl, 0);
                 range.collapse(true);
-                var nodeStack = [containerEl],
+
+                let nodeStack = [containerEl],
                     node,
                     foundStart = false,
                     stop = false;
+
                 while (!stop && (node = nodeStack.pop())) {
                     if (node.nodeType == 3) {
-                        var nextCharIndex = charIndex + node.length;
+                        let nextCharIndex = charIndex + node.length;
+
                         if (
                             !foundStart &&
                             savedSel.start >= charIndex &&
@@ -218,23 +232,26 @@ export default {
                         }
                         charIndex = nextCharIndex;
                     } else {
-                        var i = node.childNodes.length;
+                        let i = node.childNodes.length;
+
                         while (i--) {
                             nodeStack.push(node.childNodes[i]);
                         }
                     }
                 }
-                var sel = window.getSelection();
+                let sel = window.getSelection();
+
                 sel.removeAllRanges();
                 sel.addRange(range);
             } else if (document.selection) {
-                var textRange = document.body.createTextRange();
+                let textRange = document.body.createTextRange();
                 textRange.moveToElementText(containerEl);
                 textRange.collapse(true);
                 textRange.moveEnd('character', savedSel.end);
                 textRange.moveStart('character', savedSel.start);
                 textRange.select();
             }
+            return null;
         },
     },
 };

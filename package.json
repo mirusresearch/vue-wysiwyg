@@ -1,21 +1,23 @@
 {
-  "name": "vue-pell",
-  "version": "1.0.0",
-  "description": "a VUE.JS port of the wonderful pell.js",
-  "main": "index.js",
-  "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
-  },
-  "author": "alec@mirusresearch.com",
-  "license": "ISC",
-  "devDependencies": {
-    "node-sass": "^4.11.0",
-    "sass-loader": "^7.1.0",
-    "vue": "^2.5.22",
-    "webpack": "^4.28.4"
-  },
-  "dependencies": {
-    "lodash.debounce": "^4.0.8",
-    "lodash.words": "^4.2.0"
-  }
+    "name": "vue-pell",
+    "version": "1.0.0",
+    "description": "a VUE.JS port of the wonderful pell.js",
+    "main": "index.js",
+    "scripts": {
+        "dev": "vue server src/Vpell.vue"
+    },
+    "author": "alec@mirusresearch.com",
+    "license": "ISC",
+    "devDependencies": {
+        "node-sass": "^4.11.0",
+        "sass-loader": "^7.1.0",
+        "vue": "^2.5.22",
+        "webpack": "^4.28.4"
+    },
+    "dependencies": {
+        "@vue/cli": "^3.3.0",
+        "lodash.debounce": "^4.0.8",
+        "lodash.foreach": "^4.5.0",
+        "lodash.words": "^4.2.0"
+    }
 }
