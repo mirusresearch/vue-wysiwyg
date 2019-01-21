@@ -28,8 +28,6 @@ import debounce from 'lodash.debounce';
 import words from 'lodash.words';
 import foreach from 'lodash.foreach';
 
-const exec = (command, value = null) => document.execCommand(command, false, value);
-
 export default {
     name: 'VPell',
     props: {

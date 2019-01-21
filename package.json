@@ -12,11 +12,11 @@
         "node-sass": "^4.11.0",
         "sass-loader": "^7.1.0",
         "vue": "^2.5.22",
-        "webpack": "^4.28.4"
+        "webpack": "^4.28.4",
+        "@vue/cli": "^3.3.0",
+        "@vue/cli-service-global": "^3.3.0"
     },
     "dependencies": {
-        "@vue/cli": "^3.3.0",
-        "@vue/cli-service-global": "^3.3.0",
         "lodash.debounce": "^4.0.8",
         "lodash.foreach": "^4.5.0",
         "lodash.words": "^4.2.0"
